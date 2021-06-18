@@ -1,6 +1,6 @@
 # RFBKit
 
-A Swift implementaion of the Remote Buffer Frames (RFB) protocol that is used e.g. for VNC.
+⚠️ **This is still very much a WIP...** ⚠️
 
 ## Useful Links
 ### RBF
