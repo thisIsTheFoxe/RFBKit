@@ -11,9 +11,9 @@ import CoreImage
 import CoreGraphics
 
 class ImageProcessor {
-    static func imageFromARGB32Bitmap(data: NSData, width:Int, height:Int) -> CGImage {
-        let bitsPerComponent:Int = 8
-        let bitsPerPixel:Int = 32
+    static func imageFromARGB32Bitmap(data: NSData, width: Int, height: Int) -> CGImage {
+        let bitsPerComponent: Int = 8
+        let bitsPerPixel: Int = 32
         
         let providerRef = CGDataProvider(data: data)
         let rgb = CGColorSpaceCreateDeviceRGB()

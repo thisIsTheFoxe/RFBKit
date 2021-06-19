@@ -34,6 +34,19 @@ public extension UnsignedInteger {
         
         self.init(value)
     }
+    
+    var bytes: [UInt8] {
+        var result = [UInt8]()
+        
+        var value = self
+        
+        for _ in 0..<MemoryLayout<Self>.size {
+            result.append(UInt8(truncatingIfNeeded: value))
+            value >>= 8
+        }
+        
+        return result.reversed()
+    }
 }
 
 

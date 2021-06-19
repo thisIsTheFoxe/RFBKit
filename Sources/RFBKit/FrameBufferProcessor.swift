@@ -27,10 +27,8 @@ public class FrameBufferProcessor {
     let encodingMessageType = RFBEncoding.rre
     var pixelRectangle: PixelRectangle?
     
-    let frameBufferRequestMessageType = UInt8(3)
-    
     var pixelsToRead = 0
-    var rectsToRead = 0
+    var rectsToRead: UInt16 = 0
     var pixelBuffer = [UInt8]()
     
     public var delegate: FrameBufferProcessorDelegate?
@@ -49,18 +47,18 @@ public class FrameBufferProcessor {
     }
     
     //frame buffer constants
-    public private(set) var framebufferwidth = 0
-    public private(set) var framebufferheight = 0
-    public private(set) var bitsperpixel = 0
-    public private(set) var depth = 0
-    public private(set) var bigendianflag = 0
-    public private(set) var truecolourflag = 0
-    public private(set) var redmax = 0
-    public private(set) var greenmax = 0
-    public private(set) var bluemax = 0
-    public private(set) var redshift = 0
-    public private(set) var greenshift = 0
-    public private(set) var blueshift = 0
+    public private(set) var framebufferwidth: UInt16 = 0
+    public private(set) var framebufferheight: UInt16 = 0
+    public private(set) var bitsperpixel: UInt8 = 0
+    public private(set) var depth: UInt8 = 0
+    public private(set) var bigendianflag: UInt8 = 0
+    public private(set) var truecolourflag: UInt8 = 0
+    public private(set) var redmax: UInt16 = 0
+    public private(set) var greenmax: UInt16 = 0
+    public private(set) var bluemax: UInt16 = 0
+    public private(set) var redshift: UInt8 = 0
+    public private(set) var greenshift: UInt8 = 0
+    public private(set) var blueshift: UInt8 = 0
     
     func initialise() {
         guard let inputStream = inputStream else {
@@ -87,18 +85,18 @@ public class FrameBufferProcessor {
         }
         
         //extract constants
-        framebufferwidth = Int(fBWidthUInt)
-        framebufferheight = Int(fBHeightUint)
-        bitsperpixel = Int(bitPerPixelUInt)
-        depth = Int(depthUInt)
-        bigendianflag = Int(bigEndianFlagUInt)
-        truecolourflag = Int(trueColourFlagUInt)
-        redmax = Int(redMaxUInt)
-        greenmax = Int(greenMaxUInt)
-        bluemax = Int(blueMaxUInt)
-        redshift = Int(redShiftUInt)
-        greenshift = Int(greenShiftUInt)
-        blueshift = Int(blueShiftUInt)
+        framebufferwidth = fBWidthUInt
+        framebufferheight = fBHeightUint
+        bitsperpixel = bitPerPixelUInt
+        depth = depthUInt
+        bigendianflag = bigEndianFlagUInt
+        truecolourflag = trueColourFlagUInt
+        redmax = redMaxUInt
+        greenmax = greenMaxUInt
+        bluemax = blueMaxUInt
+        redshift = redShiftUInt
+        greenshift = greenShiftUInt
+        blueshift = blueShiftUInt
         
         print("Frame Width: \(framebufferwidth)")
         print("Frame Height: \(framebufferheight)")
@@ -110,25 +108,6 @@ public class FrameBufferProcessor {
         
         print("NAME=", desktopName)
     }
-    
-    private func sendFrameBufferRequest(incremental: UInt8, xvalue: UInt16, yvalue: UInt16, width: UInt16, height: UInt16) {
-        
-        let firstbytex = UInt8(xvalue)
-        let secondbytex = UInt8(xvalue.byteSwapped)
-        let firstbytey = UInt8(yvalue)
-        let secondbytey = UInt8(yvalue.byteSwapped)
-        let firstbytewidth = UInt8(truncatingIfNeeded: width)
-        let secondbytewidth = UInt8(truncatingIfNeeded: width.byteSwapped)
-        let firstbyteheight = UInt8(truncatingIfNeeded: height)
-        let secondbyteheight = UInt8(truncatingIfNeeded: height.byteSwapped)
-        let info = [frameBufferRequestMessageType, incremental, secondbytex, firstbytex, secondbytey, firstbytey, secondbytewidth, firstbytewidth, secondbyteheight, firstbyteheight]
-        outputStream?.write(info, maxLength: info.count)
-    }
-    
-    func sendRequest() {
-        sendFrameBufferRequest(incremental: 1, xvalue: 0, yvalue: 0, width: UInt16(framebufferwidth), height: UInt16(framebufferheight))
-    }
-    
     
     //return the number of pixels found
     private func ingestRectangle(offset: Int, data: NSData) -> PixelRectangle {
@@ -157,12 +136,12 @@ public class FrameBufferProcessor {
     }
     
     func readHeader() {
-        let type = inputStream?.readBytes(maxLength: 1)
+        let type = inputStream?.readUInt8()
         print("HeaderType:", type)
         _ = inputStream?.readBytes(maxLength: 1)
         
         if let rectsToRead = inputStream?.readUInt16() {
-            self.rectsToRead = Int(rectsToRead)
+            self.rectsToRead = rectsToRead
             print("rectsToRead: \(rectsToRead)")
         }
     }
@@ -181,15 +160,15 @@ public class FrameBufferProcessor {
     }
     
     private func createImage() -> CGImage {
-
-        //lets make a UIImage first
-        return ImageProcessor.imageFromARGB32Bitmap(data: NSData(bytes: &pixelBuffer, length: pixelBuffer.count), width: framebufferwidth, height: framebufferheight)
-
+#warning("Always uses framebufferwidth instead of dynamic (requested) size")
+        return ImageProcessor.imageFromARGB32Bitmap(data: NSData(bytes: &pixelBuffer, length: pixelBuffer.count), width: Int(framebufferwidth), height: Int(framebufferheight))
     }
     
     
     //transfer pixels directly to buffer, then we'll update the image
     private func addPixelsToBuffer(buffer: [UInt8], len: Int) {
+#warning("Always uses framebufferwidth instead of dynamic (requested) size")
+        
         //need to use pixelsToRead and the size and x/y position of the rectangle we're trying to draw to do this
         //every rect width need to go down a level
         //figure out coordinates in pixel rect
@@ -198,17 +177,17 @@ public class FrameBufferProcessor {
         let xCoordInRect = pixelsRead % (pixelRectangle!.width * 4)
         let yCoordInRect = pixelsRead / (pixelRectangle!.width * 4)
         
-        let initialIndex = ((pixelRectangle!.yvalue) + yCoordInRect) * (framebufferwidth * 4) + (pixelRectangle!.xvalue  * 4) + xCoordInRect
+        let initialIndex = ((pixelRectangle!.yvalue) + yCoordInRect) * (Int(framebufferwidth) * 4) + (pixelRectangle!.xvalue  * 4) + xCoordInRect
         //print("Initial index: \(initialIndex)")
         //outer for loop goes through every level
         
         for i in 0..<len {
-            let curIndex = (initialIndex + i) + (framebufferwidth * 4 - pixelRectangle!.width * 4) * (((pixelsRead + i) / (pixelRectangle!.width * 4)) - yCoordInRect)
+            let curIndex = (initialIndex + i) + (Int(framebufferwidth) * 4 - pixelRectangle!.width * 4) * (((pixelsRead + i) / (pixelRectangle!.width * 4)) - yCoordInRect)
             pixelBuffer[curIndex] = buffer[i]
         }
     }
     
-    func getPixelData() -> Int {
+    func getPixelData() -> FrameBufferStatus {
         if pixelsToRead > 0 {
            
             var buffer = [UInt8](repeating: 0, count: pixelsToRead)
@@ -227,11 +206,33 @@ public class FrameBufferProcessor {
             delegate?.didReceive(imageUpdate: pixelRectangle!)
             
             if rectsToRead > 0 {
-                print("returning 1")
-                return 1
+                return .readNextRect
             }
-            else { return 2 }
+            else { return .done }
         }
-        return 0 //signifies keep reading pixels
+        return .keepReadingPixels
     }
+}
+
+///Sent from client -> Server
+enum RFBMessageTypeClient: UInt8 {
+    case setPixelFormat = 0
+    case setEncodings = 2
+    case frameBufferRequest = 3
+    case keyEvent = 4
+    case pointerEvent = 5
+    case clientCutText = 6
+}
+
+///Received by Client from Server
+enum RFBMessageTypeServer: UInt8 {
+    case framebufferUpdate = 0
+    case setColorMap = 1
+    case bell = 2
+    case serverCutText = 3
+}
+
+
+enum FrameBufferStatus {
+    case keepReadingPixels, readNextRect, done
 }
