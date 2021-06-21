@@ -20,6 +20,20 @@ extension Comparable {
     }
 }
 
+public extension SignedInteger {
+    init(_ bytes: [UInt8]) {
+        precondition(bytes.count <= MemoryLayout<Self>.size)
+        
+        var value: Int64 = 0
+        
+        for byte in bytes {
+            value <<= 8
+                        value |= Int64(byte)
+        }
+        
+        self.init(value)
+    }
+}
 
 public extension UnsignedInteger {
     init(_ bytes: [UInt8]) {

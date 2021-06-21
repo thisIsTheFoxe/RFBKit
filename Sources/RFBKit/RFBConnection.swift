@@ -20,7 +20,7 @@ public protocol RFBConnectionDelegate {
 public struct PointerButtons: OptionSet {
 
     public let rawValue: UInt8
-    
+    //0 = disabled
     public static let primary = PointerButtons(rawValue: 1 << 0)
     public static let middle = PointerButtons(rawValue: 1 << 1)
     public static let secondary = PointerButtons(rawValue: 1 << 2)
@@ -170,17 +170,15 @@ public class RFBConnection: NSObject {
             connectionState = .readingFBRequestHeader
         }
         
-        bufferProcessor?.pixelBuffer = [UInt8](repeating: 0, count: Int(width) * Int(height) * 4)
-        
         outputStream?.write(bytes: info)
     }
     
     public func requestFullFrameBufferUpdate() throws {
-        guard let bufferProcessor = bufferProcessor, connectionState?.isConnected == true else {
+        guard let bufferProcessor = bufferProcessor, let frameBuffer = bufferProcessor.frameBuffer, connectionState?.isConnected == true else {
             throw RFBError.notConnected
         }
         
-        try requestFrameBufferUpdate(incremental: false, x: 0, y: 0, width: bufferProcessor.framebufferwidth, height: bufferProcessor.framebufferheight)
+        try requestFrameBufferUpdate(incremental: false, x: 0, y: 0, width: frameBuffer.width, height: frameBuffer.height)
     }
     
     public func sendPointerEvern(buttonMask: PointerButtons, location: (x: UInt16, y: UInt16)) throws {
