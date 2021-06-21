@@ -147,9 +147,13 @@ public class FrameBufferProcessor {
         let xCoordInRect = pixelsRead % (pixelRectangle!.width * 4)
         let yCoordInRect = pixelsRead / (pixelRectangle!.width * 4)
         
-        var initialIndex = pixelRectangle!.yvalue + yCoordInRect
+        
+        //TODO: make it work better for incremental updates with 'global' / total buffer, only update rects within the buffer
+        
+        var initialIndex = yCoordInRect
+        initialIndex += pixelRectangle!.yvalue
         initialIndex *= pixelRectangle!.width * 4
-        initialIndex += pixelRectangle!.xvalue  * 4
+//        initialIndex += pixelRectangle!.xvalue  * 4
         initialIndex += xCoordInRect
         //print("Initial index: \(initialIndex)")
         //outer for loop goes through every level
