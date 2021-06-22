@@ -20,7 +20,7 @@ public protocol RFBConnectionDelegate {
 public struct PointerButtons: OptionSet {
 
     public let rawValue: UInt8
-    
+    //0 = disabled
     public static let primary = PointerButtons(rawValue: 1 << 0)
     public static let middle = PointerButtons(rawValue: 1 << 1)
     public static let secondary = PointerButtons(rawValue: 1 << 2)
@@ -41,14 +41,18 @@ public enum ConnectionState: Int {
     case authenticating
     case receivingAuthenticationResponse
     case initialisation
-    case readingRequestHeader
-    case readingRectHeader
-    case readingPixelData
+    case initialised
+    case readingFBRectHeader
+    case readingFBPixelData
+    
+    var isConnected: Bool { self.rawValue >= ConnectionState.initialisation.rawValue }
 }
 
 enum RFBError: Error {
     case alreadyConnecting
+    case notConnected
     case badStream
+    case invalidFrame
 }
 
 public class RFBConnection: NSObject {
@@ -75,11 +79,7 @@ public class RFBConnection: NSObject {
     private var authenticator: Authenticator?
     private(set) var bufferProcessor: FrameBufferProcessor?
     
-    public func connect() throws {
-        guard connectionState == nil else {
-            throw RFBError.alreadyConnecting
-        }
-        
+    private func setupConnection() throws {
         var readStream: Unmanaged<CFReadStream>?
         var writeStream: Unmanaged<CFWriteStream>?
         let host: CFString = NSString(string: self.host)
@@ -94,13 +94,28 @@ public class RFBConnection: NSObject {
         inputStream = readStream.takeRetainedValue()
         outputStream = writeStream.takeRetainedValue()
         
-        inputStream!.delegate = self
-        outputStream!.delegate = self
-        
-        inputStream!.schedule(in: RunLoop.main, forMode: .default)
-        outputStream!.schedule(in: RunLoop.main, forMode: .default)
+        inputStream!.schedule(in: RunLoop.current, forMode: .default)
+        outputStream!.schedule(in: RunLoop.current, forMode: .default)
+
         inputStream!.open()
         outputStream!.open()
+        
+        inputStream!.delegate = self
+        outputStream!.delegate = self
+    }
+    
+    public func connect(on runQueue: DispatchQueue = .global(qos: .userInitiated)) throws {
+        guard connectionState == nil else {
+            throw RFBError.alreadyConnecting
+        }
+        runQueue.async {
+            do {
+                try self.setupConnection()
+                RunLoop.current.run()
+            } catch {
+                self.delegate?.connectionError()
+            }
+        }
     }
     
     private func decideProtocolVersion() {
@@ -150,14 +165,49 @@ public class RFBConnection: NSObject {
         outputStream?.write(bytes: [selectedAuth.value])
     }
     
-    public func sendPointerEvern(buttonMask: PointerButtons, location: (x: UInt16, y: UInt16)) {
-        let x2 = UInt8(truncatingIfNeeded: location.x)
-        let x1 = UInt8(truncatingIfNeeded: location.x.byteSwapped)
-        let y2 = UInt8(truncatingIfNeeded: location.y)
-        let y1 = UInt8(truncatingIfNeeded: location.y.byteSwapped)
-
+    public func requestFrameBufferUpdate(incremental: Bool, x: UInt16, y: UInt16, width: UInt16, height: UInt16) throws {
+        
+        guard connectionState?.isConnected == true else { throw RFBError.notConnected }
+        
+        guard let frameBuffer = bufferProcessor?.frameBuffer,
+              x <= frameBuffer.width, y <= frameBuffer.height,
+              x + width <= frameBuffer.width, y + height <= frameBuffer.height else {
+                  throw RFBError.invalidFrame
+              }
+        
+        var info = [RFBMessageTypeClient.frameBufferRequest.rawValue]
+        info.append(UInt8(truncating: incremental as NSNumber))
+        info.append(contentsOf: x.bytes)
+        info.append(contentsOf: y.bytes)
+        info.append(contentsOf: width.bytes)
+        info.append(contentsOf: height.bytes)
+        
+//        if connectionState == .initialised {
+//            connectionState = .readingFBRequestHeader
+//        }
+        
+        outputStream?.write(bytes: info)
+    }
+    
+    public func requestFullFrameBufferUpdate(forceReload: Bool = false) throws {
+        guard let bufferProcessor = bufferProcessor, let frameBuffer = bufferProcessor.frameBuffer, connectionState?.isConnected == true else {
+            throw RFBError.notConnected
+        }
+        
+        try requestFrameBufferUpdate(incremental: !forceReload, x: 0, y: 0, width: frameBuffer.width, height: frameBuffer.height)
+    }
+    
+    public func sendPointerEvern(buttonMask: PointerButtons, location: (x: UInt16, y: UInt16)) throws {
+        guard connectionState?.isConnected == true else {
+            throw RFBError.notConnected
+        }
+        
         print("Send PointerEvent: \(location)")
-        let info: [UInt8] = [UInt8(5), buttonMask.rawValue, x1, x2, y1, y2]
+        var info: [UInt8] = [RFBMessageTypeClient.pointerEvent.rawValue]
+        info.append(buttonMask.rawValue)
+        info.append(contentsOf: location.x.bytes)
+        info.append(contentsOf: location.y.bytes)
+        
         outputStream?.write(info, maxLength: info.count)
     }
 }
@@ -225,41 +275,66 @@ extension RFBConnection: StreamDelegate {
         case .initialisation:
             bufferProcessor = FrameBufferProcessor(inputStream: inputStream, outputStream: outputStream)
             print("CONECTED!!")
-            
+            connectionState = .initialised
             delegate?.connectionEstablished(with: bufferProcessor!)
-        
-        /*case .ReadingRequestHeader:
-            NSLog("ReadingRequestHeader")
-            currentState = state.ReadingRectHeader
-            fBP!.readHeader()
-            break
-        case .ReadingRectHeader:
-            NSLog("ReadingRectHeader")
-            _ = fBP!.readRectHeader()
-            currentState = state.ReadingPixelData
             
-            break
-        case .ReadingPixelData:
-            NSLog("ReadingPixelData")
-            if firstCon {
-                Timer.scheduledTimer(timeInterval: 0.1, target: self, selector: #selector(sendRequest), userInfo: nil, repeats: true)
-                firstCon = false
+            if bufferProcessor?.delegate == nil {
+                bufferProcessor?.delegate = self
             }
-            let result = fBP!.getPixelData()
-            if  result == 1 {
-                NSLog("ReadingRectHeader")
-                currentState = state.ReadingRectHeader
+            
+        case .initialised:
+            print("server msg...")
+            let type = inputStream?.readUInt8()
+            print("HeaderType:", type)
+            
+            guard let type = type, let msgType = RFBMessageTypeServer(rawValue: type) else {
+                return print("Unexpected/invalid server mesage of type:", type)
             }
-            else if result == 2 {
-                NSLog("ReadingRequestHeader")
-                currentState = state.ReadingRequestHeader
+            
+            switch msgType {
+            case .framebufferUpdate:
+                bufferProcessor?.readFBHeader()
+                connectionState = .readingFBRectHeader
+            case .setColorMap:
+                break
+            case .bell:
+                break
+            case .serverCutText:
+                break
             }
-            break
-         */
+            
+        case .readingFBRectHeader:
+            print("ReadingRectHeader")
+            if bufferProcessor?.readRectHeader() == true {
+                connectionState = .readingFBPixelData
+            } else {
+                connectionState = .initialised
+            }
+            
+        case .readingFBPixelData:
+            print("ReadingPixelData")
+            
+            let result = bufferProcessor?.getPixelData()
+            
+            if  result == .readNextRect {
+                print("ReadingRectHeader")
+                connectionState = .readingFBRectHeader
+            }
+            else if result == .done {
+                print("Image sent")
+                connectionState = .initialised
+            }
             
         default:
             print("Unknown state=", connectionState)
             return
         }
+    }
+}
+
+extension RFBConnection: FrameBufferProcessorDelegate {
+    public func didReceive(imageUpdate: PixelRectangle) {
+        guard let image = imageUpdate.image else { return }
+        delegate?.didReceive(image)
     }
 }

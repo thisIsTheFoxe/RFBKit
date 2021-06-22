@@ -47,6 +47,21 @@ extension InputStream {
         guard let bytes = self.readBytes(maxLength: 1) else { return nil }
         return UInt8(bytes)
     }
+    
+    func readInt8() -> Int8? {
+        guard let bytes = self.readBytes(maxLength: 1) else { return nil }
+        return Int8(bytes)
+    }
+    
+    func readInt16() -> Int16? {
+        guard let bytes = self.readBytes(maxLength: 2) else { return nil }
+        return Int16(bytes)
+    }
+    
+    func readInt32() -> Int32? {
+        guard let bytes = self.readBytes(maxLength: 4) else { return nil }
+        return Int32(bytes)
+    }
 }
 
 
