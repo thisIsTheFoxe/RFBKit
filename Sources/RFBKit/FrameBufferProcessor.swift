@@ -28,12 +28,8 @@ public struct FrameBuffer {
     public let depth: UInt8
     public let bigEndianFlag: UInt8
     public let trueColourFlag: UInt8
-    public let redMax: UInt16
-    public let greenMax: UInt16
-    public let blueMax: UInt16
-    public let redShift: UInt8
-    public let greenShift: UInt8
-    public let blueShift: UInt8
+    public let maxColorValue: (red: UInt16, green: UInt16, blue: UInt16)
+    public let colorShift: (red: UInt8, green: UInt8, blue: UInt8)
     public let name: String
 }
 
@@ -90,8 +86,9 @@ public class FrameBufferProcessor {
             depth: depthUInt,
             bigEndianFlag: bigEndianFlagUInt,
             trueColourFlag: trueColourFlagUInt,
-            redMax: redMaxUInt, greenMax: greenMaxUInt, blueMax: blueMaxUInt,
-            redShift: redShiftUInt, greenShift: greenShiftUInt, blueShift: blueShiftUInt, name: desktopName)
+            maxColorValue: (red: redMaxUInt, green: greenMaxUInt, blue: blueMaxUInt),
+            colorShift: (red: redShiftUInt, green: greenShiftUInt, blue: blueShiftUInt),
+            name: desktopName)
         
         pixelBuffer = [UInt8](repeating: 0, count: Int(frameBuffer!.width) * Int(frameBuffer!.height) * 4)
         
@@ -104,6 +101,7 @@ public class FrameBufferProcessor {
     func readFBHeader() {
 //        let type = inputStream?.readUInt8()
 //        print("HeaderType:", type)
+        //padding
         _ = inputStream?.readBytes(maxLength: 1)
         
         if let rectsToRead = inputStream?.readUInt16() {
@@ -115,7 +113,7 @@ public class FrameBufferProcessor {
     
     func readRectHeader() -> Bool {
         
-        guard rectsToRead != 0,
+        guard rectsToRead > 0,
               let xvalue = inputStream?.readUInt16(),
               let yvalue = inputStream?.readUInt16(),
               let width = inputStream?.readUInt16(),
@@ -139,7 +137,6 @@ public class FrameBufferProcessor {
     
     //transfer pixels directly to buffer, then we'll update the image
     private func addPixelsToBuffer(buffer: [UInt8], len: Int) {
-        
         //need to use pixelsToRead and the size and x/y position of the rectangle we're trying to draw to do this
         //every rect width need to go down a level
         //figure out coordinates in pixel rect
@@ -155,9 +152,11 @@ public class FrameBufferProcessor {
         //print("Initial index: \(initialIndex)")
         //outer for loop goes through every level
         
+        let widthDifference = Int(frameBuffer!.width) * 4 - pixelRectangle!.width * 4
+        
         for i in 0..<len {
             var curIndex = ((pixelsRead + i) / (pixelRectangle!.width * 4)) - yCoordInRect
-            curIndex *= Int(frameBuffer!.width) * 4 - pixelRectangle!.width * 4
+            curIndex *= widthDifference
             curIndex += initialIndex + i
             pixelBuffer[curIndex] = buffer[i]
         }

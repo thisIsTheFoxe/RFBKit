@@ -42,7 +42,6 @@ public enum ConnectionState: Int {
     case receivingAuthenticationResponse
     case initialisation
     case initialised
-    case frameBufferRequest
     case readingFBRectHeader
     case readingFBPixelData
     
