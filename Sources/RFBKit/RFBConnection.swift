@@ -43,7 +43,6 @@ public enum ConnectionState: Int {
     case initialisation
     case initialised
     case frameBufferRequest
-    case readingFBRequestHeader
     case readingFBRectHeader
     case readingFBPixelData
     
@@ -54,6 +53,7 @@ enum RFBError: Error {
     case alreadyConnecting
     case notConnected
     case badStream
+    case invalidFrame
 }
 
 public class RFBConnection: NSObject {
@@ -159,6 +159,14 @@ public class RFBConnection: NSObject {
         
         guard connectionState?.isConnected == true else { throw RFBError.notConnected }
         
+        guard let frameBuffer = bufferProcessor?.frameBuffer,
+              x <= frameBuffer.width, y <= frameBuffer.height,
+              x + width <= frameBuffer.width, y + height <= frameBuffer.height else {
+                  throw RFBError.invalidFrame
+              }
+        
+        
+        
         var info = [RFBMessageTypeClient.frameBufferRequest.rawValue]
         info.append(UInt8(truncating: incremental as NSNumber))
         info.append(contentsOf: x.bytes)
@@ -166,19 +174,19 @@ public class RFBConnection: NSObject {
         info.append(contentsOf: width.bytes)
         info.append(contentsOf: height.bytes)
         
-        if connectionState == .initialised {
-            connectionState = .readingFBRequestHeader
-        }
+//        if connectionState == .initialised {
+//            connectionState = .readingFBRequestHeader
+//        }
         
         outputStream?.write(bytes: info)
     }
     
-    public func requestFullFrameBufferUpdate() throws {
+    public func requestFullFrameBufferUpdate(forceReload: Bool = false) throws {
         guard let bufferProcessor = bufferProcessor, let frameBuffer = bufferProcessor.frameBuffer, connectionState?.isConnected == true else {
             throw RFBError.notConnected
         }
         
-        try requestFrameBufferUpdate(incremental: false, x: 0, y: 0, width: frameBuffer.width, height: frameBuffer.height)
+        try requestFrameBufferUpdate(incremental: !forceReload, x: 0, y: 0, width: frameBuffer.width, height: frameBuffer.height)
     }
     
     public func sendPointerEvern(buttonMask: PointerButtons, location: (x: UInt16, y: UInt16)) throws {
@@ -267,14 +275,25 @@ extension RFBConnection: StreamDelegate {
             }
             
         case .initialised:
-            print("unexpected server msg...")
+            print("server msg...")
             let type = inputStream?.readUInt8()
             print("HeaderType:", type)
             
-        case .readingFBRequestHeader:
-            print("ReadingRequestHeader")
-            connectionState = .readingFBRectHeader
-            bufferProcessor?.readHeader()
+            guard let type = type, let msgType = RFBMessageTypeServer(rawValue: type) else {
+                return print("Unexpected/invalid server mesage of type:", type)
+            }
+            
+            switch msgType {
+            case .framebufferUpdate:
+                bufferProcessor?.readFBHeader()
+                connectionState = .readingFBRectHeader
+            case .setColorMap:
+                break
+            case .bell:
+                break
+            case .serverCutText:
+                break
+            }
             
         case .readingFBRectHeader:
             print("ReadingRectHeader")

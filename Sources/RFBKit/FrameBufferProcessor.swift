@@ -91,16 +91,18 @@ public class FrameBufferProcessor {
             trueColourFlag: trueColourFlagUInt,
             redMax: redMaxUInt, greenMax: greenMaxUInt, blueMax: blueMaxUInt,
             redShift: redShiftUInt, greenShift: greenShiftUInt, blueShift: blueShiftUInt)
-                
+        
+        pixelBuffer = [UInt8](repeating: 0, count: Int(frameBuffer!.width) * Int(frameBuffer!.height) * 4)
+        
         print("Frame Buffer: \(frameBuffer.debugDescription)")
         
         print("NAME=", desktopName)
     }
     
     
-    func readHeader() {
-        let type = inputStream?.readUInt8()
-        print("HeaderType:", type)
+    func readFBHeader() {
+//        let type = inputStream?.readUInt8()
+//        print("HeaderType:", type)
         _ = inputStream?.readBytes(maxLength: 1)
         
         if let rectsToRead = inputStream?.readUInt16() {
@@ -124,7 +126,6 @@ public class FrameBufferProcessor {
         
         pixelRectangle = PixelRectangle(xvalue: Int(xvalue), yvalue: Int(yvalue), width: Int(width), height: Int(height), encodingtype: Int(encodingtype), image: nil)
         pixelsToRead = pixelRectangle!.width * pixelRectangle!.height * 4
-        pixelBuffer = [UInt8](repeating: 0, count: pixelsToRead)
         
         rectsToRead -= 1
         
@@ -132,9 +133,8 @@ public class FrameBufferProcessor {
     }
     
     private func createImage() -> CGImage {
-        return ImageProcessor.imageFromARGB32Bitmap(data: NSData(bytes: &pixelBuffer, length: pixelBuffer.count), width: pixelRectangle!.width, height: pixelRectangle!.height)
+        return ImageProcessor.imageFromARGB32Bitmap(data: NSData(bytes: &pixelBuffer, length: pixelBuffer.count), width: Int(frameBuffer!.width), height: Int(frameBuffer!.height))
     }
-    
     
     //transfer pixels directly to buffer, then we'll update the image
     private func addPixelsToBuffer(buffer: [UInt8], len: Int) {
@@ -147,20 +147,16 @@ public class FrameBufferProcessor {
         let xCoordInRect = pixelsRead % (pixelRectangle!.width * 4)
         let yCoordInRect = pixelsRead / (pixelRectangle!.width * 4)
         
-        
-        //TODO: make it work better for incremental updates with 'global' / total buffer, only update rects within the buffer
-        
-        var initialIndex = yCoordInRect
-        initialIndex += pixelRectangle!.yvalue
-        initialIndex *= pixelRectangle!.width * 4
-//        initialIndex += pixelRectangle!.xvalue  * 4
+        var initialIndex = yCoordInRect + pixelRectangle!.yvalue
+        initialIndex *= Int(frameBuffer!.width) * 4
+        initialIndex += pixelRectangle!.xvalue * 4
         initialIndex += xCoordInRect
         //print("Initial index: \(initialIndex)")
         //outer for loop goes through every level
         
         for i in 0..<len {
             var curIndex = ((pixelsRead + i) / (pixelRectangle!.width * 4)) - yCoordInRect
-            curIndex *= pixelRectangle!.width * 4 - pixelRectangle!.width * 4
+            curIndex *= Int(frameBuffer!.width) * 4 - pixelRectangle!.width * 4
             curIndex += initialIndex + i
             pixelBuffer[curIndex] = buffer[i]
         }
