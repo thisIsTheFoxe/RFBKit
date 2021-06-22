@@ -176,8 +176,6 @@ public class RFBConnection: NSObject {
                   throw RFBError.invalidFrame
               }
         
-        
-        
         var info = [RFBMessageTypeClient.frameBufferRequest.rawValue]
         info.append(UInt8(truncating: incremental as NSNumber))
         info.append(contentsOf: x.bytes)

@@ -34,6 +34,7 @@ public struct FrameBuffer {
     public let redShift: UInt8
     public let greenShift: UInt8
     public let blueShift: UInt8
+    public let name: String
 }
 
 public class FrameBufferProcessor {
@@ -90,7 +91,7 @@ public class FrameBufferProcessor {
             bigEndianFlag: bigEndianFlagUInt,
             trueColourFlag: trueColourFlagUInt,
             redMax: redMaxUInt, greenMax: greenMaxUInt, blueMax: blueMaxUInt,
-            redShift: redShiftUInt, greenShift: greenShiftUInt, blueShift: blueShiftUInt)
+            redShift: redShiftUInt, greenShift: greenShiftUInt, blueShift: blueShiftUInt, name: desktopName)
         
         pixelBuffer = [UInt8](repeating: 0, count: Int(frameBuffer!.width) * Int(frameBuffer!.height) * 4)
         
