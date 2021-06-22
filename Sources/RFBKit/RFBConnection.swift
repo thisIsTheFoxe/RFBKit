@@ -80,11 +80,7 @@ public class RFBConnection: NSObject {
     private var authenticator: Authenticator?
     private(set) var bufferProcessor: FrameBufferProcessor?
     
-    public func connect() throws {
-        guard connectionState == nil else {
-            throw RFBError.alreadyConnecting
-        }
-        
+    private func setupConnection() throws {
         var readStream: Unmanaged<CFReadStream>?
         var writeStream: Unmanaged<CFWriteStream>?
         let host: CFString = NSString(string: self.host)
@@ -99,13 +95,28 @@ public class RFBConnection: NSObject {
         inputStream = readStream.takeRetainedValue()
         outputStream = writeStream.takeRetainedValue()
         
-        inputStream!.delegate = self
-        outputStream!.delegate = self
-        
-        inputStream!.schedule(in: RunLoop.main, forMode: .default)
-        outputStream!.schedule(in: RunLoop.main, forMode: .default)
+        inputStream!.schedule(in: RunLoop.current, forMode: .default)
+        outputStream!.schedule(in: RunLoop.current, forMode: .default)
+
         inputStream!.open()
         outputStream!.open()
+        
+        inputStream!.delegate = self
+        outputStream!.delegate = self
+    }
+    
+    public func connect(on runQueue: DispatchQueue = .global(qos: .userInitiated)) throws {
+        guard connectionState == nil else {
+            throw RFBError.alreadyConnecting
+        }
+        runQueue.async {
+            do {
+                try self.setupConnection()
+                RunLoop.current.run()
+            } catch {
+                self.delegate?.connectionError()
+            }
+        }
     }
     
     private func decideProtocolVersion() {
