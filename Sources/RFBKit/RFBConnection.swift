@@ -11,8 +11,8 @@ import CoreGraphics
 public protocol RFBConnectionDelegate {
     func didReceive(_ image: CGImage)
     func selectAuthentication(from authenticationTypes: [AuthenticationType]) -> AuthenticationType
-    func authenticate(with authenticator: Authenticator)
-    func connectionError()
+    func authenticate(with authenticator: Authenticatable)
+    func connectionError(reason: String?)
     func authenticationError()
     func connectionEstablished(with processor: FrameBufferProcessor)
 }
@@ -53,6 +53,9 @@ enum RFBError: Error {
     case notConnected
     case badStream
     case invalidFrame
+    case invalidAuthType
+    case badAuthType
+    case noAuthenticator
 }
 
 public class RFBConnection: NSObject {
@@ -70,7 +73,7 @@ public class RFBConnection: NSObject {
     }
     
     private static let rfbProtocol = "RFB 003.889\n"
-
+    
     private(set) var connectionState: ConnectionState?
     
     private var inputStream: InputStream?
@@ -96,7 +99,7 @@ public class RFBConnection: NSObject {
         
         inputStream!.schedule(in: RunLoop.current, forMode: .default)
         outputStream!.schedule(in: RunLoop.current, forMode: .default)
-
+        
         inputStream!.open()
         outputStream!.open()
         
@@ -113,14 +116,14 @@ public class RFBConnection: NSObject {
                 try self.setupConnection()
                 RunLoop.current.run()
             } catch {
-                self.delegate?.connectionError()
+                self.delegate?.connectionError(reason: error.localizedDescription)
             }
         }
     }
     
-    private func decideProtocolVersion() {
+    private func decideProtocolVersion() throws {
         guard inputStream != nil, outputStream != nil, connectionState == nil else {
-            fatalError("No streams or bad state")
+            throw RFBError.badStream
         }
         
         connectionState = .protocolVersion
@@ -128,37 +131,50 @@ public class RFBConnection: NSObject {
         if let serverMsg = inputStream?.readString(maxLength: 128), !serverMsg.isEmpty {
             print("ServerProtocol:", serverMsg)
         } else {
-            fatalError("serverMsg is empty")
+            throw RFBError.badStream
         }
-                
+        
         outputStream?.write(string: RFBConnection.rfbProtocol)
     }
     
-    private func selectAuth() {
+    private func selectAuth() throws {
         guard inputStream != nil, outputStream != nil, connectionState == .protocolVersion else {
-            fatalError("No streams or bad state")
+            throw RFBError.badStream
         }
         
         connectionState = .authenticationType
         
-        guard let buffer = inputStream?.readBytes() else {
-            print("No bytes read!")
+        guard let typesCount = inputStream?.readUInt8() else {
+            throw RFBError.badStream
+        }
+        
+        guard typesCount > 0 else {
+            if let reasonLength = inputStream?.readUInt32() {
+                let reason = inputStream?.readString(maxLength: Int(reasonLength))
+                delegate?.connectionError(reason: reason)
+            }
             return
         }
         
-        let typesCount = Int(buffer[0])
-        let authenticationTypes = Array(buffer[1...typesCount])
-        //30, 33, 36, 35
+        guard let authenticationTypes = inputStream?.readBytes(maxLength: Int(typesCount)) else {
+            throw RFBError.badStream
+        }
+        
+        //30, 33, 36, 35, for my macOS 11
         print("AuthTypes=\(authenticationTypes)")
         
         let authTypes = AuthenticationType.factory(authenticationTypes: authenticationTypes)
         
         guard let selectedAuth = delegate?.selectAuthentication(from: authTypes),
-              authTypes.contains(selectedAuth),
-              let auther = selectedAuth.makeAuthenticator(inputStream: inputStream!, outputStream: outputStream!) else {
-                  fatalError("Unsuported AuthType!")
-                  return
+              authTypes.contains(selectedAuth) else {
+                  throw RFBError.badAuthType
               }
+        
+        guard selectedAuth != .invalid else { throw RFBError.invalidAuthType }
+        
+        guard let auther = selectedAuth.makeAuthenticator(inputStream: inputStream!, outputStream: outputStream!) else {
+            throw RFBError.noAuthenticator
+        }
         
         self.authenticator = auther
         print("SelectedAuth=", selectedAuth)
@@ -210,6 +226,12 @@ public class RFBConnection: NSObject {
         
         outputStream?.write(info, maxLength: info.count)
     }
+    
+    private func resetConnection() {
+        connectionState = nil
+        inputStream?.close()
+        outputStream?.close()
+    }
 }
 
 extension RFBConnection: StreamDelegate {
@@ -220,43 +242,54 @@ extension RFBConnection: StreamDelegate {
             
         case Stream.Event.errorOccurred:
             print("ErrorOccurred")
-            delegate?.connectionError()
-            connectionState = nil
-#warning("Close connection??")
+            delegate?.connectionError(reason: aStream.streamError?.localizedDescription)
+            resetConnection()
             
         case Stream.Event.hasBytesAvailable:
             print("HasBytesAvailiable")
             handleBytes(from: aStream)
             
-//        case .hasSpaceAvailable:
-//            print("didSend (aka hasSpaceAvailable)")
-            
         case Stream.Event.endEncountered:
             print("Stream Endded, is input=", aStream == inputStream)
+            resetConnection()
             
         default:
             break
-//            print("Unknown stream event: \(eventCode), isOut=\(aStream == outputStream)")
+            //            print("Unknown stream event: \(eventCode), isOut=\(aStream == outputStream)")
         }
     }
     
     private func handleBytes(from aStream: Stream) {
         guard inputStream != nil && outputStream != nil, aStream == inputStream else {
-            fatalError("Stream error..!?")
+            delegate?.connectionError(reason: RFBError.badStream.localizedDescription)
+            resetConnection()
+            return
         }
         
         print(#function, connectionState)
         
         switch connectionState {
         case .none:
-            decideProtocolVersion()
+            do {
+                try decideProtocolVersion()
+            } catch {
+                delegate?.connectionError(reason: error.localizedDescription)
+                resetConnection()
+            }
             
         case .protocolVersion:
-            selectAuth()
+            do {
+                try selectAuth()
+            } catch {
+                delegate?.connectionError(reason: error.localizedDescription)
+                resetConnection()
+            }
             
         case .authenticationType:
             guard let auther = authenticator else {
-                fatalError("No auther or bad state")
+                delegate?.connectionError(reason: RFBError.noAuthenticator.localizedDescription)
+                resetConnection()
+                return
             }
             
             connectionState = .authenticating
