@@ -22,8 +22,8 @@ public struct PointerButtons: OptionSet {
     public let rawValue: UInt8
     //0 = disabled
     public static let primary = PointerButtons(rawValue: 1 << 0)
-    public static let middle = PointerButtons(rawValue: 1 << 1)
-    public static let secondary = PointerButtons(rawValue: 1 << 2)
+    public static let secondary = PointerButtons(rawValue: 1 << 1)
+//    public static let mouseWheel = PointerButtons(rawValue: 1 << 2)
     public static let up = PointerButtons(rawValue: 1 << 3)
     public static let down = PointerButtons(rawValue: 1 << 4)
     public static let left = PointerButtons(rawValue: 1 << 5)
@@ -33,6 +33,93 @@ public struct PointerButtons: OptionSet {
     public init(rawValue: UInt8) {
         self.rawValue = rawValue
     }
+}
+
+public enum KeyboardKey {
+    var rawValue: UInt32 {
+        switch self {
+        case .backspace:
+            return 0xff08
+        case .tab:
+            return 0xff09
+        case .enter:
+            return 0xff0d
+        case .escape:
+            return 0xff1b
+        case .left:
+            return 0xff51
+        case .up:
+            return 0xff52
+        case .right:
+            return 0xff53
+        case .down:
+            return 0xff54
+        case .shiftL:
+            return 0xffe1
+        case .shiftR:
+            return 0xffe2
+        case .crtlL:
+            return 0xffe3
+        case .ctrlR:
+            return 0xffe4
+        case .altL:
+            return 0xffe7
+        case .altR:
+            return 0xffe8
+        case .metaL:
+            return 0xffe9
+        case .metaR:
+            return 0xffea
+        case .f1:
+            return 0xffbe
+        case .f2:
+            return 0xffbf
+        case .f3:
+            return 0xffc0
+        case .f4:
+            return 0xffc1
+        case .f5:
+            return 0xffc2
+        case .f6:
+            return 0xffc3
+        case .f7:
+            return 0xffc4
+        case .f8:
+            return 0xffc5
+        case .f9:
+            return 0xffc6
+        case .f10:
+            return 0xffc7
+        case .f11:
+            return 0xffc8
+        case .f12:
+            return 0xffc9
+        case .char(let character):
+            print([UInt8](character.utf8), character)
+            return UInt32([UInt8](character.utf8).first!)
+        }
+    }
+    
+    case backspace,
+         tab,
+         enter,
+         escape,
+         left,
+         up,
+         down,
+         right,
+         shiftL,
+         shiftR,
+         crtlL,
+         ctrlR,
+         metaL,
+         metaR,
+         altL,
+         altR
+    
+    case f1, f2, f3, f4, f5, f6, f7, f8, f9, f10, f11, f12
+    
+    case char(Character)
 }
 
 public enum ConnectionState: Int {
@@ -198,10 +285,6 @@ public class RFBConnection: NSObject {
         info.append(contentsOf: width.bytes)
         info.append(contentsOf: height.bytes)
         
-//        if connectionState == .initialised {
-//            connectionState = .readingFBRequestHeader
-//        }
-        
         outputStream?.write(bytes: info)
     }
     
@@ -218,13 +301,31 @@ public class RFBConnection: NSObject {
             throw RFBError.notConnected
         }
         
-        print("Send PointerEvent: \(location)")
+        print("Send PointerEvent: \(location); \(buttonMask)")
         var info: [UInt8] = [RFBMessageTypeClient.pointerEvent.rawValue]
         info.append(buttonMask.rawValue)
         info.append(contentsOf: location.x.bytes)
         info.append(contentsOf: location.y.bytes)
         
-        outputStream?.write(info, maxLength: info.count)
+        outputStream?.write(bytes: info)
+    }
+        
+    public func sendKeyEvent(_ key: UInt32, isPressedDown: Bool) throws {
+        var info: [UInt8] = [RFBMessageTypeClient.keyEvent.rawValue]
+        info.append(isPressedDown ? 1 : 0)
+        info.append(contentsOf: [0, 0])
+        info.append(contentsOf: key.bytes)
+        
+        outputStream?.write(bytes: info)
+    }
+    
+    public func sendKeysClick(_ keys: [KeyboardKey]) throws {
+        for key in keys {
+            try sendKeyEvent(key.rawValue, isPressedDown: true)
+        }
+        for key in keys {
+            try sendKeyEvent(key.rawValue, isPressedDown: false)
+        }
     }
     
     private func resetConnection() {

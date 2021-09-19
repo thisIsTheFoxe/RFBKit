@@ -15,6 +15,9 @@ public enum AuthenticationType: Equatable {
         case .none:             return 1
         case .vncAuth:          return 2
         case .ard:              return 30
+            ///Apple Key Distribution Center (Kerberos)
+            ///see https://gist.github.com/zoocoup/4069441
+        case .appleKDC:         return 35
         case let .other(value): return value
         }
     }
@@ -23,6 +26,7 @@ public enum AuthenticationType: Equatable {
     case none
     case vncAuth
     case ard
+    case appleKDC
     case other(UInt8)
     
     init(value: UInt8) {
@@ -31,6 +35,7 @@ public enum AuthenticationType: Equatable {
         case 1: self = .none
         case 2: self = .vncAuth
         case 30: self = .ard
+        case 35: self = .appleKDC
         default:
             self = .other(value)
         }
@@ -46,6 +51,8 @@ public enum AuthenticationType: Equatable {
             return VNCAuthenticator(inputStream: inputStream, outputStream: outputStream)
         case .ard:
             return AppleAuthenticator(inputStream: inputStream, outputStream: outputStream)
+        case .appleKDC:
+            return nil
         case .other(let uInt8):
             print("No Authenticator available for: \(uInt8)")
             return nil
