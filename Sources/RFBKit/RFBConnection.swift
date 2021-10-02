@@ -215,11 +215,10 @@ public class RFBConnection: NSObject {
         
         connectionState = .protocolVersion
         
-        if let serverMsg = inputStream?.readString(maxLength: 128), !serverMsg.isEmpty {
-            print("ServerProtocol:", serverMsg)
-        } else {
+        guard let serverMsg = inputStream?.readString(maxLength: 128), !serverMsg.isEmpty else {
             throw RFBError.badStream
         }
+        print("ServerProtocol:", serverMsg)
         
         outputStream?.write(string: RFBConnection.rfbProtocol)
     }
