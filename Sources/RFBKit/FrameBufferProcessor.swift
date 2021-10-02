@@ -9,10 +9,12 @@ import Foundation
 import CoreFoundation
 import CoreGraphics
 
+/// A delegate to be notified about updates of a frame buffer
 public protocol FrameBufferProcessorDelegate {
     func didReceive(imageUpdate: PixelRectangle)
 }
 
+/// The framebuffer encoding
 public enum RFBEncoding: Int {
     case raw = 0
     
@@ -20,6 +22,7 @@ public enum RFBEncoding: Int {
     case rre = 2
 }
 
+/// A struct holding information about a frame buffer
 public struct FrameBuffer {
     //frame buffer constants
     public let width: UInt16
@@ -33,19 +36,32 @@ public struct FrameBuffer {
     public let name: String
 }
 
+/// A class that handles frame buffer messages
 public class FrameBufferProcessor {
+    /// RFB input stream
     private var inputStream: InputStream?
+    /// RFB output stream
     private var outputStream: OutputStream?
     
+    /// Pixels left to read for the frame buffer to be filled
     private var pixelsToRead = 0
+    
+    /// Number of pixels rectangles are left to be read
     private var rectsToRead: UInt16 = 0
+    
+    /// The total buffer of all pixels of the image
     private var pixelBuffer = [UInt8]()
     
+    /// RFB encodig type
     let encodingMessageType = RFBEncoding.rre
+    
+    /// The current pixel rectable being worked at
     var pixelRectangle: PixelRectangle?
     
+    /// The metadata about the current frame buffer
     public private(set) var frameBuffer: FrameBuffer?
     
+    /// The delegte to notify others about changes
     public var delegate: FrameBufferProcessorDelegate?
     
     init(inputStream: InputStream?, outputStream: OutputStream?) {
@@ -55,6 +71,7 @@ public class FrameBufferProcessor {
         initialise()
     }
     
+    /// Reads the [ServerInit](https://github.com/rfbproto/rfbproto/blob/master/rfbproto.rst#serverinit) message of a RFB connection
     func initialise() {
         guard let inputStream = inputStream else {
             return
@@ -98,9 +115,11 @@ public class FrameBufferProcessor {
     }
     
     
+    /// Reads the header of a frame buffer update message
     func readFBHeader() {
 //        let type = inputStream?.readUInt8()
 //        print("HeaderType:", type)
+        
         //padding
         _ = inputStream?.readBytes(maxLength: 1)
         
@@ -110,9 +129,9 @@ public class FrameBufferProcessor {
         }
     }
     
-    
+    /// Reads the header of a pixel rectangle
+    /// - Returns: `false` if there are still rects left to read
     func readRectHeader() -> Bool {
-        
         guard rectsToRead > 0,
               let xvalue = inputStream?.readUInt16(),
               let yvalue = inputStream?.readUInt16(),
@@ -131,11 +150,12 @@ public class FrameBufferProcessor {
         return true
     }
     
+    /// Makes a `CGImage` from the current frame buffer
     private func createImage() -> CGImage {
         return ImageProcessor.imageFromARGB32Bitmap(data: NSData(bytes: &pixelBuffer, length: pixelBuffer.count), width: Int(frameBuffer!.width), height: Int(frameBuffer!.height))
     }
     
-    //transfer pixels directly to buffer, then we'll update the image
+    /// Transfers pixels directly to buffer and updates the image
     private func addPixelsToBuffer(buffer: [UInt8], len: Int) {
         //need to use pixelsToRead and the size and x/y position of the rectangle we're trying to draw to do this
         //every rect width need to go down a level
@@ -162,6 +182,8 @@ public class FrameBufferProcessor {
         }
     }
     
+    /// Reads pixel data from the `inputStream`
+    /// - Returns: The `FrameBufferStatus`, e.g. if more pixels need to be read
     func getPixelData() -> FrameBufferStatus {
         if pixelsToRead > 0 {
            
@@ -189,7 +211,7 @@ public class FrameBufferProcessor {
     }
 }
 
-///Sent from client -> Server
+/// Message sent from client to server
 enum RFBMessageTypeClient: UInt8 {
     case setPixelFormat = 0
     case setEncodings = 2
@@ -199,7 +221,7 @@ enum RFBMessageTypeClient: UInt8 {
     case clientCutText = 6
 }
 
-///Received by Client from Server
+///Message received by client from server
 enum RFBMessageTypeServer: UInt8 {
     case framebufferUpdate = 0
     case setColorMap = 1
@@ -207,7 +229,7 @@ enum RFBMessageTypeServer: UInt8 {
     case serverCutText = 3
 }
 
-
+/// Status of the frame buffer
 enum FrameBufferStatus {
     case keepReadingPixels, readNextRect, done
 }

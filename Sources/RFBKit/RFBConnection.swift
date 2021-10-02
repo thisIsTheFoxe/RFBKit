@@ -8,15 +8,29 @@
 import Foundation
 import CoreGraphics
 
+/// A delegate to notify about connection changes / updates
 public protocol RFBConnectionDelegate {
+    /// The frame buffer updated the image
     func didReceive(_ image: CGImage)
+    
+    /// Select a authentication type from a list of security-types provided by the server
+    /// - Returns: The selected type
     func selectAuthentication(from authenticationTypes: [AuthenticationType]) -> AuthenticationType
+    
+    /// Handle RFB authentication
     func authenticate(with authenticator: Authenticatable)
+    
+    /// A connection error occured
     func connectionError(reason: String?)
+    
+    /// An authentication error occured
     func authenticationError()
+    
+    /// The RFB connection was established successfully
     func connectionEstablished(with processor: FrameBufferProcessor)
 }
 
+/// Types of mouse / trackpad buttons
 public struct PointerButtons: OptionSet {
 
     public let rawValue: UInt8
@@ -35,6 +49,7 @@ public struct PointerButtons: OptionSet {
     }
 }
 
+/// Key values for a keyboard key
 public enum KeyboardKey {
     var rawValue: UInt32 {
         switch self {
@@ -122,6 +137,7 @@ public enum KeyboardKey {
     case char(Character)
 }
 
+/// The current state of the RFB connection
 public enum ConnectionState: Int {
     case protocolVersion
     case authenticationType
@@ -135,6 +151,7 @@ public enum ConnectionState: Int {
     var isConnected: Bool { self.rawValue >= ConnectionState.initialisation.rawValue }
 }
 
+/// An error that occured while connecting to a RFB server
 enum RFBError: Error {
     case alreadyConnecting
     case notConnected
@@ -145,11 +162,18 @@ enum RFBError: Error {
     case noAuthenticator
 }
 
+/// A class that handles a RFB connetion to a sever
 public class RFBConnection: NSObject {
+    /// The hostname or address of the RFB server
     public let host: String
+    
+    /// The port of the RFB server (default VNC port is `5900`)
     public let port: Int // = 5900
     
+    /// Indicates if multiple connections should be possible simultaniously.
     public let shareFlag: Bool
+    
+    /// The connection delegate to notfy about connection changes
     public var delegate: RFBConnectionDelegate?
     
     public init(host: String, port: Int = 5900, shouldDisconnectOthers shareFlag: Bool = false, delegate: RFBConnectionDelegate?) {
@@ -159,16 +183,24 @@ public class RFBConnection: NSObject {
         self.delegate = delegate
     }
     
+    /// RFB protocol version
     private static let rfbProtocol = "RFB 003.889\n"
     
+    /// Current connetion state
     private(set) var connectionState: ConnectionState?
     
+    /// RFB input buffer
     private var inputStream: InputStream?
+    ///RFB output buffer
     private var outputStream: OutputStream?
     
+    /// Selected authenticator
     private var authenticator: Authenticator?
+    
+    /// Buffer processor to process frame buffer updates
     private(set) var bufferProcessor: FrameBufferProcessor?
     
+    /// Initializes a new connetion using the host / port parameters
     private func setupConnection() throws {
         var readStream: Unmanaged<CFReadStream>?
         var writeStream: Unmanaged<CFWriteStream>?
@@ -194,6 +226,7 @@ public class RFBConnection: NSObject {
         outputStream!.delegate = self
     }
     
+    /// Try to connect to the RFB server if not already connected
     public func connect(on runQueue: DispatchQueue = .global(qos: .userInitiated)) throws {
         guard connectionState == nil else {
             throw RFBError.alreadyConnecting
@@ -208,6 +241,7 @@ public class RFBConnection: NSObject {
         }
     }
     
+    /// First RFB [Handshaking Messages](https://github.com/rfbproto/rfbproto/blob/master/rfbproto.rst#protocolversion)
     private func decideProtocolVersion() throws {
         guard inputStream != nil, outputStream != nil, connectionState == nil else {
             throw RFBError.badStream
@@ -223,6 +257,7 @@ public class RFBConnection: NSObject {
         outputStream?.write(string: RFBConnection.rfbProtocol)
     }
     
+    /// Select RFB [security type](https://github.com/rfbproto/rfbproto/blob/master/rfbproto.rst#security)
     private func selectAuth() throws {
         guard inputStream != nil, outputStream != nil, connectionState == .protocolVersion else {
             throw RFBError.badStream
@@ -267,6 +302,17 @@ public class RFBConnection: NSObject {
         outputStream?.write(bytes: [selectedAuth.value])
     }
     
+    
+    /// Tells the server to send a frame buffer update
+    ///
+    /// - See Also: [FramebufferUpdateRequest](https://github.com/rfbproto/rfbproto/blob/master/rfbproto.rst#framebufferupdaterequest)
+    ///
+    /// - Parameters:
+    ///   - incremental: Update only the changed parts, don't update the entire frame
+    ///   - x: X value of the area that should be updated
+    ///   - y: X value of the area that should be updated
+    ///   - width: Width of the area that should be updated
+    ///   - height: Height of the area that should be updated
     public func requestFrameBufferUpdate(incremental: Bool, x: UInt16, y: UInt16, width: UInt16, height: UInt16) throws {
         
         guard connectionState?.isConnected == true else { throw RFBError.notConnected }
@@ -287,6 +333,8 @@ public class RFBConnection: NSObject {
         outputStream?.write(bytes: info)
     }
     
+    /// Requests a frame buffer update for the entire frame
+    /// - Parameter forceReload: Should reload everything or only the changed parts of the frame
     public func requestFullFrameBufferUpdate(forceReload: Bool = false) throws {
         guard let bufferProcessor = bufferProcessor, let frameBuffer = bufferProcessor.frameBuffer, connectionState?.isConnected == true else {
             throw RFBError.notConnected
@@ -295,7 +343,11 @@ public class RFBConnection: NSObject {
         try requestFrameBufferUpdate(incremental: !forceReload, x: 0, y: 0, width: frameBuffer.width, height: frameBuffer.height)
     }
     
-    public func sendPointerEvern(buttonMask: PointerButtons, location: (x: UInt16, y: UInt16)) throws {
+    /// Sends a pointer event to the RFB server
+    /// - Parameters:
+    ///   - buttonMask: The buttons pressed
+    ///   - location: The location of the pointer
+    public func sendPointerEvert(buttonMask: PointerButtons, location: (x: UInt16, y: UInt16)) throws {
         guard connectionState?.isConnected == true else {
             throw RFBError.notConnected
         }
@@ -308,17 +360,29 @@ public class RFBConnection: NSObject {
         
         outputStream?.write(bytes: info)
     }
-        
-    public func sendKeyEvent(_ key: UInt32, isPressedDown: Bool) throws {
+    
+    /// Send a single keyboard event
+    /// - Parameters:
+    ///   - key: The key concerned
+    ///   - isPressedDown: Indicating if the key is pressed or released
+    ///   - release: If `true` the key will be released immediately after. (default is `false`)
+    public func sendKeyEvent(_ key: UInt32, isPressedDown: Bool, release: Bool = false) throws {
         var info: [UInt8] = [RFBMessageTypeClient.keyEvent.rawValue]
         info.append(isPressedDown ? 1 : 0)
         info.append(contentsOf: [0, 0])
         info.append(contentsOf: key.bytes)
         
         outputStream?.write(bytes: info)
+        
+        if release {
+            info[1] = 0
+            outputStream?.write(bytes: info)
+        }
     }
     
-    public func sendKeysClick(_ keys: [KeyboardKey]) throws {
+    /// Tells the server to perform keyboard events, while holding down the keys pressed already
+    /// - Parameter keys: The sequence of keys to be pressed
+    public func sendKeyboardShortcuts(_ keys: [KeyboardKey]) throws {
         for key in keys {
             try sendKeyEvent(key.rawValue, isPressedDown: true)
         }
@@ -327,6 +391,7 @@ public class RFBConnection: NSObject {
         }
     }
     
+    /// Terminates the current connetion
     private func resetConnection() {
         connectionState = nil
         inputStream?.close()
@@ -359,6 +424,8 @@ extension RFBConnection: StreamDelegate {
         }
     }
     
+    /// Handles bytes recieved by the client from the server
+    /// - Parameter aStream: The `inputStream` that which `hasBytesAvailable`
     private func handleBytes(from aStream: Stream) {
         guard inputStream != nil && outputStream != nil, aStream == inputStream else {
             delegate?.connectionError(reason: RFBError.badStream.localizedDescription)
